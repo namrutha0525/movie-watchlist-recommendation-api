@@ -1,0 +1,86 @@
+version: "3.8"
+
+# ============================================
+# Movie Watchlist & Recommendation API
+# Services: Go API + PostgreSQL + Redis
+# ============================================
+
+services:
+
+  # ---------- Go API ----------
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: movie-api
+    ports:
+      - "${PORT:-8080}:8080"
+    env_file:
+      - ../.env
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - movie-network
+    restart: unless-stopped
+
+  # ---------- PostgreSQL ----------
+  postgres:
+    image: postgres:16-alpine
+    container_name: movie-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-movie_recommend}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../migrations/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-movie_recommend}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - movie-network
+    restart: unless-stopped
+
+  # ---------- Redis ----------
+  redis:
+    image: redis:7-alpine
+    container_name: movie-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - movie-network
+    restart: unless-stopped
+
+# ---------- Volumes ----------
+volumes:
+  pgdata:
+    driver: local
+  redisdata:
+    driver: local
+
+# ---------- Networks ----------
+networks:
+  movie-network:
+    driver: bridge
